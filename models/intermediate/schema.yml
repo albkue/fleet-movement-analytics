@@ -1,0 +1,53 @@
+version: 2
+
+models:
+  - name: int_ping_segments
+    description: >
+      One row per ping paired with the vehicle's previous ping. The unit of
+      movement: every distance and duration in the marts is a sum over this.
+    tests:
+      # The time-accounting identity. Every observed second is either moving
+      # or stopped, never both and never neither -- this is the assertion the
+      # whole utilisation story rests on, so it is checked rather than
+      # asserted in a comment.
+      - assert_expression: "moving_seconds + stopped_seconds = observed_seconds"
+      # Unobserved time is disjoint from observed time.
+      - assert_expression: >
+          (unobserved_seconds > 0 and observed_seconds = 0)
+          or (unobserved_seconds = 0)
+      - assert_expression: "observed_seconds >= 0"
+      - assert_expression: "moving_seconds >= 0"
+      - assert_expression: "stopped_seconds >= 0"
+      - assert_expression: "unobserved_seconds >= 0"
+      - assert_expression: "travelled_m >= 0"
+      - assert_expression: "engine_on_seconds <= observed_seconds"
+      # Distance is credited only where the segment was classified as moving.
+      - assert_expression: "is_moving or travelled_m = 0"
+      - assert_expression: "not is_moving or moving_seconds > 0"
+      # A segment flagged as following a gap contributes only unobserved time.
+      - assert_expression: >
+          not is_after_gap
+          or (observed_seconds = 0 and travelled_m = 0
+              and unobserved_seconds > 0)
+      # The first ping of a vehicle has no predecessor and therefore no
+      # interval; it must not contribute time or distance to anything.
+      - assert_expression: >
+          prev_recorded_at is not null
+          or (observed_seconds = 0 and travelled_m = 0
+              and unobserved_seconds = 0)
+      # Implied speed is derived from real displacement over real time, so it
+      # is bounded by the same physics the ping validator enforces.
+      - assert_expression: "implied_speed_kph is null or implied_speed_kph >= 0"
+    columns:
+      - name: ping_id
+        tests: [not_null, unique]
+      - name: vehicle_id
+        tests: [not_null]
+      - name: recorded_at
+        tests: [not_null]
+      - name: h3_r8
+        tests: [not_null]
+      - name: is_moving
+        tests: [not_null]
+      - name: is_after_gap
+        tests: [not_null]

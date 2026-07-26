@@ -1,0 +1,96 @@
+version: 2
+
+models:
+  - name: stg_pings
+    description: >
+      Typed telemetry pings. One row per validated ping; the grain is
+      guaranteed by raw.pings' primary key on ping_id.
+    tests:
+      # These mirror the CHECK constraints on raw.pings on purpose. A failure
+      # here means something wrote to raw.pings without going through the
+      # consumer -- which is exactly the case the constraints alone would not
+      # tell you about, because they would have refused the write and the row
+      # would simply be missing.
+      - assert_expression: "lat between -90 and 90"
+      - assert_expression: "lon between -180 and 180"
+      - assert_expression: "speed_kph >= 0 and speed_kph <= 250"
+      - assert_expression: "heading_deg is null or (heading_deg >= 0 and heading_deg < 360)"
+      - assert_expression: "fuel_pct is null or fuel_pct between 0 and 100"
+      # A tracker cannot report a fix from before the pipeline could have
+      # existed, and a fix from the future is a clock fault.
+      - assert_expression: "recorded_at > timestamptz '2020-01-01'"
+      - assert_expression: "recorded_at < now() + interval '1 day'"
+      # The H3 index must exist for every ping, or the density grid silently
+      # loses rows rather than failing.
+      - assert_expression: "length(h3_r8) > 0 and length(h3_r9) > 0"
+      # Resolution 9 is a child of resolution 8, so the coarse cell id can
+      # never be the fine one.
+      - assert_expression: "h3_r8 <> h3_r9"
+    columns:
+      - name: ping_id
+        description: Device-assigned UUID; the deduplication key.
+        tests: [not_null, unique]
+      - name: vehicle_id
+        tests: [not_null]
+      - name: recorded_at
+        description: Fix time as reported by the tracker, normalised to UTC.
+        tests: [not_null]
+      - name: location
+        description: PostGIS geography(POINT, 4326), generated from lat/lon.
+        tests: [not_null]
+      - name: h3_r8
+        tests: [not_null]
+      - name: h3_r9
+        tests: [not_null]
+      - name: ignition
+        tests: [not_null]
+      - name: ingested_at
+        description: When the consumer landed the row; drives the incremental watermark.
+        tests: [not_null]
+
+  - name: stg_detections
+    description: >
+      Detection episodes from the stream processor, typed and made joinable.
+    tests:
+      - assert_expression: "ended_at is null or ended_at >= started_at"
+      # An episode either has both an end and a duration or neither. A row
+      # with one and not the other means the open/close merge went wrong.
+      - assert_expression: >
+          (ended_at is null and duration_seconds is null)
+          or (ended_at is not null and duration_seconds is not null)
+      - assert_expression: "duration_seconds is null or duration_seconds >= 0"
+      - assert_expression: "is_open = (ended_at is null)"
+      - assert_expression: "severity_rank between 1 and 3"
+      # Only these two types can carry a zone, and geofence_breach must.
+      - assert_expression: >
+          zone_id is null
+          or detection_type in ('zone_visit', 'geofence_breach', 'idle')
+      - assert_expression: "detection_type <> 'geofence_breach' or zone_id is not null"
+      - assert_expression: "detection_type <> 'zone_visit' or zone_id is not null"
+    columns:
+      - name: detection_key
+        description: Deterministic natural key; identical across reprocessing.
+        tests: [not_null, unique]
+      - name: detection_type
+        tests:
+          - not_null
+          - accepted_values:
+              values:
+                - zone_visit
+                - geofence_breach
+                - idle
+                - route_deviation
+                - delay
+                - gps_gap
+      - name: severity
+        tests:
+          - not_null
+          - accepted_values:
+              values: [info, warning, critical]
+      - name: vehicle_id
+        tests: [not_null]
+      - name: started_at
+        tests: [not_null]
+      - name: updated_at
+        description: Bumped when an episode closes; drives the incremental watermark.
+        tests: [not_null]

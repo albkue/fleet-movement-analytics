@@ -1,0 +1,85 @@
+services:
+  kafka:
+    image: apache/kafka:3.9.0
+    container_name: fleet_kafka
+    restart: unless-stopped
+    ports:
+      # Only the external listener is published. The producer and the stream
+      # processor run on the host, so they connect here; nothing inside the
+      # network does.
+      - "${KAFKA_PORT:-9096}:9094"
+    environment:
+      # Single-node KRaft: this one process is both broker and controller,
+      # so there is no ZooKeeper to run alongside it.
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      CLUSTER_ID: fleet-local-cluster
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+
+      # Two client listeners on purpose: PLAINTEXT advertises the container
+      # hostname for in-network clients, EXTERNAL advertises localhost so a
+      # client on the host gets an address it can actually reach. A broker
+      # hands back the advertised address on metadata lookup, so a single
+      # listener would break one side or the other.
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:9094
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:${KAFKA_PORT:-9096}
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT
+
+      # Single broker, so nothing can be replicated beyond itself.
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 1
+      # Don't wait out the default 3s rebalance delay on a one-consumer group.
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_NUM_PARTITIONS: ${KAFKA_TOPIC_PARTITIONS:-12}
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      # Keep a week of telemetry so the stream can be replayed into an empty
+      # warehouse without re-simulating it.
+      KAFKA_LOG_RETENTION_HOURS: 168
+    volumes:
+      - kafkadata:/var/lib/kafka/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 >/dev/null 2>&1",
+        ]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 20s
+
+  postgres:
+    # PostGIS rather than plain Postgres: point-in-polygon against the
+    # geofences and distance-to-route are computed in the database, not in
+    # Python. See fleet/enrich.py.
+    image: postgis/postgis:16-3.4
+    container_name: fleet_pg
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-fleet}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-fleet}
+      POSTGRES_DB: ${POSTGRES_DB:-fleet}
+    ports:
+      - "${POSTGRES_PORT:-5436}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Applied only on first boot of an empty volume. `python -m fleet
+      # init-db` applies the same files idempotently at any time.
+      - ./sql:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-fleet} -d ${POSTGRES_DB:-fleet}",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pgdata:
+  kafkadata:

@@ -1,0 +1,297 @@
+version: 2
+
+models:
+  - name: dim_vehicle
+    description: One row per registered vehicle, with lifetime activity.
+    tests:
+      - assert_expression: "distance_km >= 0"
+      - assert_expression: "moving_seconds >= 0 and stopped_seconds >= 0"
+      # Idling is engine time that is not moving time, so it can never exceed
+      # the engine time it is carved out of.
+      - assert_expression: "idling_engine_seconds <= engine_on_seconds"
+      - assert_expression: "has_reported = (pings > 0)"
+      - assert_expression: "not has_reported or last_seen_at >= first_seen_at"
+      # A vehicle that never reported must be zeroed rather than null, or
+      # every SUM over the fleet silently drops it.
+      - assert_expression: >
+          has_reported or (pings = 0 and distance_km = 0 and trips = 0)
+    columns:
+      - name: vehicle_id
+        tests: [not_null, unique]
+      - name: plate
+        tests: [not_null]
+      - name: vehicle_type
+        tests:
+          - not_null
+          - accepted_values:
+              values: [van, truck, motorbike]
+      - name: home_depot_id
+        tests:
+          - not_null
+          - relationships:
+              to: dim_zone
+              field: zone_id
+
+  - name: dim_zone
+    description: One row per geofence, with measured area and a GeoJSON boundary.
+    tests:
+      - assert_expression: "area_km2 > 0"
+      - assert_expression: "perimeter_km > 0"
+      - assert_expression: "centre_lat between -90 and 90"
+      - assert_expression: "centre_lon between -180 and 180"
+      - assert_expression: "breaches_on_entry = (zone_kind = 'restricted')"
+      - assert_expression: "has_dwell_limit = (max_dwell_minutes is not null)"
+      # The GeoJSON must actually be GeoJSON, not the string 'null' PostGIS
+      # returns for an empty geometry.
+      - assert_expression: "boundary_geojson like '{\"type\":\"Polygon\"%'"
+    columns:
+      - name: zone_id
+        tests: [not_null, unique]
+      - name: name
+        tests: [not_null]
+      - name: zone_kind
+        tests:
+          - not_null
+          - accepted_values:
+              values: [depot, customer, restricted, congestion]
+
+  - name: dim_route
+    description: One row per route, with measured length and planned pace.
+    tests:
+      - assert_expression: "length_km > 0"
+      - assert_expression: "planned_duration_minutes > 0"
+      # Service time cannot consume the whole plan, or there is no time in
+      # which to drive the route at all.
+      - assert_expression: "planned_drive_minutes > 0"
+      # A planned pace outside this band means the route geometry and its
+      # planned duration disagree about what vehicle is driving it.
+      - assert_expression: "planned_avg_kph between 3 and 120"
+      - assert_expression: "path_geojson like '{\"type\":\"LineString\"%'"
+    columns:
+      - name: route_id
+        tests: [not_null, unique]
+      - name: start_zone_id
+        tests:
+          - not_null
+          - relationships:
+              to: dim_zone
+              field: zone_id
+      - name: end_zone_id
+        tests:
+          - not_null
+          - relationships:
+              to: dim_zone
+              field: zone_id
+
+  - name: fct_alerts
+    description: One row per detection episode, with vehicle, zone and route context.
+    tests:
+      - assert_expression: "ended_at is null or ended_at >= started_at"
+      - assert_expression: "is_open = (ended_at is null)"
+      - assert_expression: "duration_seconds is null or duration_seconds >= 0"
+      - assert_expression: "severity_rank between 1 and 3"
+      - assert_expression: "lat is null or lat between -90 and 90"
+      - assert_expression: "lon is null or lon between -180 and 180"
+      # Entering a restricted zone is always critical, whatever else is true
+      # about it. If this ever fails, the severity rule and the zone
+      # catalogue have drifted apart.
+      - assert_expression: >
+          not (detection_type = 'geofence_breach'
+               and details ->> 'reason' = 'entered_restricted_zone')
+          or severity = 'critical'
+      # An episode that has closed must have been scored against its own
+      # threshold, or it cannot be ranked against the others.
+      - assert_expression: >
+          is_open
+          or detection_type = 'zone_visit'
+          or threshold_multiple is not null
+      # Anything reported at all cleared its threshold, by definition.
+      - assert_expression: "threshold_multiple is null or threshold_multiple >= 0"
+    columns:
+      - name: detection_key
+        tests: [not_null, unique]
+      - name: detection_type
+        tests:
+          - not_null
+          - accepted_values:
+              values:
+                - zone_visit
+                - geofence_breach
+                - idle
+                - route_deviation
+                - delay
+                - gps_gap
+      - name: severity
+        tests:
+          - not_null
+          - accepted_values:
+              values: [info, warning, critical]
+      - name: vehicle_id
+        tests:
+          - not_null
+          - relationships:
+              to: dim_vehicle
+              field: vehicle_id
+      - name: zone_id
+        tests:
+          - relationships:
+              to: dim_zone
+              field: zone_id
+
+  - name: fct_trips
+    description: One row per assigned trip, plan versus actual.
+    tests:
+      - assert_expression: "planned_end_at > planned_start_at"
+      - assert_expression: "actual_end_at is null or actual_end_at >= actual_start_at"
+      - assert_expression: "distance_km >= 0"
+      - assert_expression: "moving_seconds >= 0 and stopped_seconds >= 0"
+      - assert_expression: "alerts >= critical_alerts"
+      - assert_expression: >
+          alerts >= idle_alerts + deviation_alerts + delay_alerts
+                    + breach_alerts + gap_alerts
+      - assert_expression: "has_telemetry = (pings > 0)"
+      # Punctuality is only defined for a trip that has actually finished.
+      # This is the assertion that catches the classic bug where the trip
+      # still in progress is scored as late.
+      - assert_expression: "is_on_time is null or is_complete"
+      - assert_expression: "not is_final_trip or is_on_time is null"
+      - assert_expression: >
+          moving_share_pct is null or moving_share_pct between 0 and 100
+      # A completed trip that covered no ground at all did not happen, and a
+      # trip that covered five times its own route is not the trip that was
+      # planned. Either is worth failing a build over.
+      - assert_expression: >
+          not is_complete or not has_telemetry
+          or route_coverage_pct between 1 and 500
+    columns:
+      - name: trip_id
+        tests: [not_null, unique]
+      - name: vehicle_id
+        tests:
+          - not_null
+          - relationships:
+              to: dim_vehicle
+              field: vehicle_id
+      - name: route_id
+        tests:
+          - not_null
+          - relationships:
+              to: dim_route
+              field: route_id
+      - name: planned_start_at
+        tests: [not_null]
+
+  - name: fct_vehicle_hours
+    description: One row per vehicle per reporting hour.
+    tests:
+      - unique_combination:
+          columns: [vehicle_id, recorded_hour]
+      - assert_expression: "moving_seconds + stopped_seconds = observed_seconds"
+      - assert_expression: "utilisation_pct is null or utilisation_pct between 0 and 100"
+      - assert_expression: "coverage_pct is null or coverage_pct between 0 and 100"
+      - assert_expression: "idling_engine_seconds <= engine_on_seconds"
+      - assert_expression: "hour_of_day between 0 and 23"
+      - assert_expression: "pings > 0"
+      # An hour holds at most an hour of observed time, plus the one segment
+      # that straddles the boundary.
+      #
+      # A segment is attributed whole to the hour of the ping that *ends* it,
+      # which is what makes summing by hour neither double-count nor drop
+      # time. The cost is that the first segment of an hour carries however
+      # long the vehicle was silent beforehand, so an hour can measure
+      # slightly over 3600 seconds -- bounded by the longest interval that
+      # still counts as observed, which is the signal-gap threshold.
+      #
+      # 4200 = 3600 + GPS_GAP_MINUTES * 60 at the default of 10 minutes.
+      # Schema tests cannot read {{ var(...) }}, so raising GPS_GAP_MINUTES
+      # above 10 means raising this number to match.
+      - assert_expression: "observed_seconds <= 4200"
+      - assert_expression: "distance_km >= 0"
+    columns:
+      - name: vehicle_id
+        tests:
+          - not_null
+          - relationships:
+              to: dim_vehicle
+              field: vehicle_id
+      - name: recorded_hour
+        tests: [not_null]
+
+  - name: agg_daily_fleet
+    description: Daily fleet health by vehicle type.
+    tests:
+      - unique_combination:
+          columns: [activity_date, vehicle_type]
+      - assert_expression: "utilisation_pct is null or utilisation_pct between 0 and 100"
+      - assert_expression: "coverage_pct is null or coverage_pct between 0 and 100"
+      - assert_expression: "on_time_pct is null or on_time_pct between 0 and 100"
+      - assert_expression: >
+          engine_idle_share_pct is null
+          or engine_idle_share_pct between 0 and 100
+      - assert_expression: "trips_completed <= trips_planned"
+      - assert_expression: "trips_on_time <= trips_completed"
+      - assert_expression: "alerts >= critical_alerts"
+      - assert_expression: "distance_km >= 0"
+    columns:
+      - name: activity_date
+        tests: [not_null]
+      - name: vehicle_type
+        tests:
+          - not_null
+          - accepted_values:
+              values: [van, truck, motorbike]
+
+  - name: agg_zone_activity
+    description: Daily geofence activity per zone.
+    tests:
+      - unique_combination:
+          columns: [activity_date, zone_id]
+      - assert_expression: "visits >= closed_visits"
+      - assert_expression: "vehicles <= visits"
+      - assert_expression: "breaches = entry_breaches + dwell_breaches"
+      # A dwell breach is a subset of the visits that ended, so the rate is a
+      # real proportion. This is what fails if an open visit ever leaks into
+      # the denominator.
+      - assert_expression: "dwell_breaches <= closed_visits"
+      - assert_expression: >
+          dwell_breach_rate_pct is null
+          or dwell_breach_rate_pct between 0 and 100
+      # Only a restricted zone can be breached on entry, and only a zone with
+      # a limit can be breached by dwelling.
+      - assert_expression: "entry_breaches = 0 or zone_kind = 'restricted'"
+      - assert_expression: "dwell_breaches = 0 or max_dwell_minutes is not null"
+      - assert_expression: >
+          max_dwell_minutes_observed is null
+          or max_dwell_minutes is null
+          or dwell_breaches > 0
+          or max_dwell_minutes_observed <= max_dwell_minutes
+    columns:
+      - name: activity_date
+        tests: [not_null]
+      - name: zone_id
+        tests:
+          - not_null
+          - relationships:
+              to: dim_zone
+              field: zone_id
+
+  - name: agg_h3_activity
+    description: Daily fleet density and speed per H3 cell.
+    tests:
+      - unique_combination:
+          columns: [activity_date, h3_r8]
+      - assert_expression: "pings > 0"
+      - assert_expression: "vehicles > 0"
+      - assert_expression: "moving_seconds + stopped_seconds = observed_seconds"
+      - assert_expression: >
+          stopped_share_pct is null or stopped_share_pct between 0 and 100
+      - assert_expression: "mean_lat between -90 and 90"
+      - assert_expression: "mean_lon between -180 and 180"
+      - assert_expression: "distance_km >= 0"
+      # H3 resolution 8 cell ids are 15 hex characters.
+      - assert_expression: "length(h3_r8) = 15"
+    columns:
+      - name: activity_date
+        tests: [not_null]
+      - name: h3_r8
+        tests: [not_null]

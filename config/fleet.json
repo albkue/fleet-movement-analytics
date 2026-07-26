@@ -1,0 +1,222 @@
+{
+  "_comment": [
+    "Fleet reference data, loaded into ref.* by `python -m fleet seed`.",
+    "Coordinates are [longitude, latitude] in WGS84 (GeoJSON order, which is",
+    "the opposite of the [lat, lon] order humans usually say them in).",
+    "The geography is Phnom Penh; the shapes are stylised, not surveyed."
+  ],
+
+  "zones": [
+    {
+      "zone_id": "Z-DEPOT-N",
+      "name": "Northbridge Depot",
+      "zone_kind": "depot",
+      "max_dwell_minutes": 90,
+      "boundary": [
+        [104.8840, 11.5840],
+        [104.8960, 11.5840],
+        [104.8960, 11.5960],
+        [104.8840, 11.5960],
+        [104.8840, 11.5840]
+      ]
+    },
+    {
+      "zone_id": "Z-DEPOT-S",
+      "name": "Chak Angre Depot",
+      "zone_kind": "depot",
+      "max_dwell_minutes": 90,
+      "boundary": [
+        [104.9240, 11.5040],
+        [104.9360, 11.5040],
+        [104.9360, 11.5160],
+        [104.9240, 11.5160],
+        [104.9240, 11.5040]
+      ]
+    },
+    {
+      "zone_id": "Z-CUST-RIVERSIDE",
+      "name": "Riverside Retail",
+      "zone_kind": "customer",
+      "max_dwell_minutes": 20,
+      "boundary": [
+        [104.9275, 11.5655],
+        [104.9365, 11.5655],
+        [104.9365, 11.5745],
+        [104.9275, 11.5745],
+        [104.9275, 11.5655]
+      ]
+    },
+    {
+      "zone_id": "Z-CUST-OLYMPIC",
+      "name": "Olympic Market",
+      "zone_kind": "customer",
+      "max_dwell_minutes": 20,
+      "boundary": [
+        [104.9135, 11.5455],
+        [104.9225, 11.5455],
+        [104.9225, 11.5545],
+        [104.9135, 11.5545],
+        [104.9135, 11.5455]
+      ]
+    },
+    {
+      "zone_id": "Z-CUST-TOULKORK",
+      "name": "Toul Kork Distribution",
+      "zone_kind": "customer",
+      "max_dwell_minutes": 20,
+      "boundary": [
+        [104.8905, 11.5705],
+        [104.8995, 11.5705],
+        [104.8995, 11.5795],
+        [104.8905, 11.5795],
+        [104.8905, 11.5705]
+      ]
+    },
+    {
+      "zone_id": "Z-CUST-AIRPORT",
+      "name": "Airport Cargo Terminal",
+      "zone_kind": "customer",
+      "max_dwell_minutes": 45,
+      "boundary": [
+        [104.8395, 11.5405],
+        [104.8505, 11.5405],
+        [104.8505, 11.5515],
+        [104.8395, 11.5515],
+        [104.8395, 11.5405]
+      ]
+    },
+    {
+      "zone_id": "Z-REST-PALACE",
+      "name": "Palace Precinct (no goods vehicles)",
+      "zone_kind": "restricted",
+      "max_dwell_minutes": null,
+      "boundary": [
+        [104.9280, 11.5580],
+        [104.9340, 11.5580],
+        [104.9340, 11.5640],
+        [104.9280, 11.5640],
+        [104.9280, 11.5580]
+      ]
+    },
+    {
+      "zone_id": "Z-CONG-MONIVONG",
+      "name": "Monivong Boulevard Corridor",
+      "zone_kind": "congestion",
+      "max_dwell_minutes": null,
+      "boundary": [
+        [104.9155, 11.5420],
+        [104.9205, 11.5420],
+        [104.9205, 11.5780],
+        [104.9155, 11.5780],
+        [104.9155, 11.5420]
+      ]
+    }
+  ],
+
+  "routes": [
+    {
+      "route_id": "R-NORTH-LOOP",
+      "name": "North Loop",
+      "start_zone_id": "Z-DEPOT-N",
+      "end_zone_id": "Z-DEPOT-N",
+      "planned_duration_minutes": 75,
+      "service_minutes": 8,
+      "stop_zone_ids": ["Z-CUST-TOULKORK", "Z-CUST-RIVERSIDE"],
+      "path": [
+        [104.8900, 11.5900],
+        [104.8920, 11.5850],
+        [104.8950, 11.5790],
+        [104.8950, 11.5750],
+        [104.9020, 11.5730],
+        [104.9110, 11.5720],
+        [104.9180, 11.5715],
+        [104.9260, 11.5705],
+        [104.9320, 11.5700],
+        [104.9300, 11.5780],
+        [104.9200, 11.5850],
+        [104.9050, 11.5890],
+        [104.8900, 11.5900]
+      ]
+    },
+    {
+      "route_id": "R-SOUTH-RUN",
+      "name": "South Run",
+      "start_zone_id": "Z-DEPOT-S",
+      "end_zone_id": "Z-DEPOT-S",
+      "planned_duration_minutes": 60,
+      "service_minutes": 8,
+      "stop_zone_ids": ["Z-CUST-OLYMPIC", "Z-CUST-RIVERSIDE"],
+      "path": [
+        [104.9300, 11.5100],
+        [104.9280, 11.5200],
+        [104.9250, 11.5320],
+        [104.9210, 11.5430],
+        [104.9180, 11.5500],
+        [104.9220, 11.5580],
+        [104.9280, 11.5650],
+        [104.9320, 11.5700],
+        [104.9350, 11.5600],
+        [104.9360, 11.5450],
+        [104.9340, 11.5300],
+        [104.9300, 11.5100]
+      ]
+    },
+    {
+      "route_id": "R-AIRPORT-SHUTTLE",
+      "name": "Airport Shuttle",
+      "start_zone_id": "Z-DEPOT-N",
+      "end_zone_id": "Z-DEPOT-N",
+      "planned_duration_minutes": 90,
+      "service_minutes": 20,
+      "stop_zone_ids": ["Z-CUST-AIRPORT"],
+      "path": [
+        [104.8900, 11.5900],
+        [104.8850, 11.5800],
+        [104.8800, 11.5700],
+        [104.8700, 11.5620],
+        [104.8580, 11.5540],
+        [104.8450, 11.5460],
+        [104.8520, 11.5560],
+        [104.8650, 11.5680],
+        [104.8780, 11.5790],
+        [104.8900, 11.5900]
+      ]
+    },
+    {
+      "route_id": "R-CITY-CROSS",
+      "name": "City Cross",
+      "start_zone_id": "Z-DEPOT-S",
+      "end_zone_id": "Z-DEPOT-N",
+      "planned_duration_minutes": 70,
+      "service_minutes": 8,
+      "stop_zone_ids": ["Z-CUST-OLYMPIC", "Z-CUST-TOULKORK"],
+      "path": [
+        [104.9300, 11.5100],
+        [104.9260, 11.5250],
+        [104.9220, 11.5400],
+        [104.9180, 11.5500],
+        [104.9175, 11.5600],
+        [104.9170, 11.5700],
+        [104.9080, 11.5730],
+        [104.8950, 11.5750],
+        [104.8930, 11.5820],
+        [104.8900, 11.5900]
+      ]
+    }
+  ],
+
+  "vehicles": [
+    { "vehicle_id": "VH-001", "plate": "PP-1201", "vehicle_type": "van",       "capacity_kg": 1200, "home_depot_id": "Z-DEPOT-N" },
+    { "vehicle_id": "VH-002", "plate": "PP-1202", "vehicle_type": "van",       "capacity_kg": 1200, "home_depot_id": "Z-DEPOT-N" },
+    { "vehicle_id": "VH-003", "plate": "PP-1203", "vehicle_type": "van",       "capacity_kg": 1200, "home_depot_id": "Z-DEPOT-S" },
+    { "vehicle_id": "VH-004", "plate": "PP-1204", "vehicle_type": "van",       "capacity_kg": 1500, "home_depot_id": "Z-DEPOT-S" },
+    { "vehicle_id": "VH-005", "plate": "PP-1205", "vehicle_type": "van",       "capacity_kg": 1500, "home_depot_id": "Z-DEPOT-N" },
+    { "vehicle_id": "VH-006", "plate": "PP-3301", "vehicle_type": "truck",     "capacity_kg": 4500, "home_depot_id": "Z-DEPOT-N" },
+    { "vehicle_id": "VH-007", "plate": "PP-3302", "vehicle_type": "truck",     "capacity_kg": 4500, "home_depot_id": "Z-DEPOT-S" },
+    { "vehicle_id": "VH-008", "plate": "PP-3303", "vehicle_type": "truck",     "capacity_kg": 7500, "home_depot_id": "Z-DEPOT-S" },
+    { "vehicle_id": "VH-009", "plate": "PP-3304", "vehicle_type": "truck",     "capacity_kg": 7500, "home_depot_id": "Z-DEPOT-N" },
+    { "vehicle_id": "VH-010", "plate": "PP-8801", "vehicle_type": "motorbike", "capacity_kg": 60,   "home_depot_id": "Z-DEPOT-S" },
+    { "vehicle_id": "VH-011", "plate": "PP-8802", "vehicle_type": "motorbike", "capacity_kg": 60,   "home_depot_id": "Z-DEPOT-N" },
+    { "vehicle_id": "VH-012", "plate": "PP-8803", "vehicle_type": "motorbike", "capacity_kg": 60,   "home_depot_id": "Z-DEPOT-S" }
+  ]
+}
